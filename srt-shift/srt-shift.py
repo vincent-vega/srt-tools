@@ -12,7 +12,7 @@ import sys
 def _shifttime(instant: int, delta: int) -> str:
     instant += delta
     if instant < 0:
-        return '00:00:00:000'
+        return '00:00:00,000'
     # milliseconds
     millis = str(instant % 1000).zfill(3)
     instant = int(instant / 1000)
@@ -27,35 +27,34 @@ def _shifttime(instant: int, delta: int) -> str:
     return f'{hours}:{minutes}:{seconds},{millis}'
 
 
-def _millis(values: [int, int, int, int]) -> int:
+def _millis(values) -> int:
     return sum(map(lambda x: x[0] * x[1], zip([3600000, 60000, 1000, 1], values)))
 
 
 def shift(file: str, delta: int, offset: int) -> None:
     backup = f'{file}.backup'
     if Path(backup).exists():
-        resp = None
-        while resp is None or resp not in 'yYnN':
-            resp = input(f'File {backup} will be overwritten, continue? (y/N) ')
-        if resp in 'nN':
+        resp = input(f'File {backup} will be overwritten, continue? (y/N) ')
+        if resp.lower() != 'y':
             print('Aborted')
             sys.exit(0)
         os.remove(backup)
     shutil.copy2(file, backup)
-    os.remove(file)
     timestamp_pattern = r'\d{1,2}:\d{1,2}:\d{1,2},\d{1,3}'
-    with open(backup) as fr, open(file, 'w') as fw:
+    # utf-8 + surrogateescape passes unknown bytes through untouched; newline='' keeps CRLF
+    io_args = dict(encoding='utf-8', errors='surrogateescape', newline='')
+    with open(backup, **io_args) as fr, open(file, 'w', **io_args) as fw:
         while (line := fr.readline()):
-            match = re.search(f'^\\s*({timestamp_pattern})\\s+-->\\s+({timestamp_pattern})\\s*$', line)
+            match = re.search(f'^\\s*({timestamp_pattern})\\s+-->\\s+({timestamp_pattern})(.*)$', line, re.DOTALL)
             if not match:
                 fw.write(line)
                 continue
-            timestamp1, timestamp2 = match.groups()
+            timestamp1, timestamp2, rest = match.groups()
 
             # first timestamp
             start = map(int, re.findall(r'\d+', timestamp1))
             millis = _millis(start)
-            if offset is not None and millis < offset:
+            if millis < offset:
                 # no need to shift
                 fw.write(line)
                 continue
@@ -63,7 +62,7 @@ def shift(file: str, delta: int, offset: int) -> None:
 
             # second timestamp
             end = map(int, re.findall(r'\d+', timestamp2))
-            fw.write(f'{_shifttime(_millis(end), delta)}\n')
+            fw.write(f'{_shifttime(_millis(end), delta)}{rest}')
 
 
 if __name__ == '__main__':
