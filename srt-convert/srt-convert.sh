@@ -9,12 +9,15 @@ case "${1:-}" in
   to-docx)
     # <i>..</i> -> *..* so pandoc keeps italics (raw html is dropped in docx).
     # ponytail: whole cue = one paragraph, so Google translates with full context;
-    # add +hard_line_breaks to keep the original line splits instead.
-    sed 's#</\{0,1\}i>#*#g' "$2" | pandoc -f markdown-smart -t docx -o "$3" ;;
+    # wrapped lines get joined. Dialog lines ("- ...") get a hard break (trailing \)
+    # so they stay split. Use +hard_line_breaks to keep every line split instead.
+    sed 's#</\{0,1\}i>#*#g' "$2" | perl -00 -pe 's/^((?!.*-->).+)\n(?=\*?-)/$1\\\n/mg' |
+      pandoc -f markdown-smart -t docx -o "$3" ;;
   from-docx)
     # one paragraph per cue: "N  start  <any arrow>  end  text"
     pandoc "$2" -t commonmark --wrap=none | perl -00 -pe '
       s/^(\d+)\s+(\S+)\s+\S+\s+(\S+)\s*/$1\n$2 --> $3\n/;
+      s/\\\n/\n/g;
       s/\*([^*]+)\*/<i>$1<\/i>/g;
       s/\\(.)/$1/g;
       s/\s*$/\n\n/;' > "$3" ;;
